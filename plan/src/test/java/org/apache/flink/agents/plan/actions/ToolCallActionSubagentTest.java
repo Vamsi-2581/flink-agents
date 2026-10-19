@@ -238,6 +238,39 @@ class ToolCallActionSubagentTest {
         assertSubagentReports(ctx.reports, "a", "b");
     }
 
+    @Test
+    void acknowledgesAnAwaitFailureHandledAsAModelVisibleError() throws Exception {
+        FailingSubagentSetup agent = new FailingSubagentSetup();
+        FakeRunnerContext ctx = new FakeRunnerContext().withAgent("reviewer", agent);
+
+        ToolCallAction.processToolRequest(toolRequest("_subagent_reviewer"), ctx);
+
+        assertThat(agent.futures).hasSize(1);
+        assertThat(agent.futures.get(0).failure).hasMessage("remote unavailable");
+        ToolResponseEvent response = ToolResponseEvent.fromEvent(ctx.sentEvents.get(0));
+        assertThat(response.getSuccess()).containsEntry("call-1", false);
+        assertThat(response.getError().get("call-1")).contains("remote unavailable");
+    }
+
+    @Test
+    void acknowledgesEveryAwaitFailureUnderParallelDispatch() throws Exception {
+        FailingSubagentSetup agent = new FailingSubagentSetup();
+        FakeRunnerContext ctx =
+                new FakeRunnerContext()
+                        .withParallelToolCalls()
+                        .withAgent("reviewer", agent);
+
+        ToolCallAction.processToolRequest(twoSubagentRequest("reviewer", "reviewer"), ctx);
+
+        assertThat(agent.futures).hasSize(2);
+        assertThat(agent.futures).allSatisfy(future -> assertThat(future.failure)
+                .hasMessage("remote unavailable"));
+        ToolResponseEvent response = ToolResponseEvent.fromEvent(ctx.sentEvents.get(0));
+        assertThat(response.getSuccess())
+                .containsEntry("call-1", false)
+                .containsEntry("call-2", false);
+    }
+
     /**
      * A cancelled sub-agent call must propagate like a cancelled tool call (#1111), not be folded
      * into a tool-error response: no ToolResponseEvent goes out, so no further chat call is driven
@@ -585,6 +618,61 @@ class ToolCallActionSubagentTest {
             }
             prompts.add(prompt);
             return new ResolvedSubagentFuture(sessionId, callId, outcome);
+        }
+    }
+
+    /** Returns futures whose exceptional await can be acknowledged by the dispatcher. */
+    private static class FailingSubagentSetup extends SubagentSetup {
+        private final List<FailingFuture> futures = new ArrayList<>();
+
+        FailingSubagentSetup() {
+            super(subagentDescriptor(FailingSubagentSetup.class, "Fails while awaiting."), null);
+        }
+
+        @Override
+        public SubagentFuture submit(RunnerContext ctx, Object prompt) {
+            return submit(ctx, prompt, "session", "call-" + futures.size());
+        }
+
+        @Override
+        public SubagentFuture submit(RunnerContext ctx, Object prompt, String sessionId) {
+            return submit(ctx, prompt, sessionId, "call-" + futures.size());
+        }
+
+        @Override
+        public SubagentFuture submit(
+                RunnerContext ctx, Object prompt, String sessionId, String callId) {
+            FailingFuture future = new FailingFuture(sessionId, callId);
+            futures.add(future);
+            return future;
+        }
+    }
+
+    private static class FailingFuture extends SubagentFuture {
+        private Exception failure;
+
+        FailingFuture(String sessionId, String callId) {
+            super(sessionId, callId);
+        }
+
+        @Override
+        public boolean isDone() {
+            return false;
+        }
+
+        @Override
+        public SubagentResult await() {
+            throw new IllegalStateException("remote unavailable");
+        }
+
+        @Override
+        public void fail(Exception failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public SubagentFutures combine(SubagentFuture... others) {
+            throw new UnsupportedOperationException();
         }
     }
 

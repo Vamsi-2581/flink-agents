@@ -123,6 +123,11 @@ class DeferredSubagentFuture(SubagentFuture):
         if self._registry is not None:
             self._registry.untrack_pending_subagent_call(self.identity)
 
+    def fail(self, failure: Exception) -> None:
+        """Complete a failed await that the model-driven caller handled."""
+        if not self._done and not self._cancelled:
+            self._resolve(SubagentResult.error(failure))
+
 
 class DeferredSubagentSetup(BaseSubagentSetup, ABC):
     """The framework-level deferred execution mode for sub-agent setups.

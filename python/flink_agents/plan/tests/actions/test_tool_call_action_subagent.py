@@ -19,6 +19,7 @@ import asyncio
 from datetime import datetime
 from typing import Any
 
+import pytest
 from pydantic import BaseModel, PrivateAttr
 from typing_extensions import override
 
@@ -38,6 +39,9 @@ from flink_agents.plan.actions.tool_call_action import process_tool_request
 from flink_agents.plan.configuration import AgentConfiguration
 from flink_agents.plan.function import PythonFunction
 from flink_agents.plan.tools.function_tool import FunctionTool
+from flink_agents.runtime.async_subagent import BaseAsyncSubagentSetup, RunStatus
+from flink_agents.runtime.deferred_subagent import DeferredSubagentSetup
+from flink_agents.runtime.tests.test_base_subagent import _FakeTask
 
 
 def query_order(order_id: str) -> str:
@@ -603,3 +607,60 @@ def test_reports_a_resolved_subagent_delegation_under_the_subagent_scope() -> No
     assert started_timestamp is not None
     assert succeeded_timestamp is not None
     assert _parse_timestamp(succeeded_timestamp) >= _parse_timestamp(started_timestamp)
+
+
+class _FailingDeferredSetup(DeferredSubagentSetup):
+    """Deferred test setup whose durable call raises a system-level failure."""
+
+    def prepare(
+        self, ctx: Any, prompt: Any, session_id: str, call_id: str
+    ) -> tuple:
+        def fail() -> SubagentResult:
+            message = "remote unavailable"
+            raise RuntimeError(message)
+
+        return (f"{session_id}#{call_id}", fail, None)
+
+
+class _FailingAsyncSetup(BaseAsyncSubagentSetup):
+    """Async test setup whose status probe raises a system-level failure."""
+
+    def call_submit_request(self, session_id: str, call_id: str, prompt: Any) -> None:
+        return None
+
+    def call_query_status(self, session_id: str, call_id: str) -> RunStatus:
+        message = "status service unavailable"
+        raise RuntimeError(message)
+
+    def call_fetch_result(self, session_id: str, call_id: str) -> SubagentResult:
+        message = "a failed status probe must not fetch a result"
+        raise AssertionError(message)
+
+    def call_cancel_request(self, session_id: str, call_id: str) -> None:
+        return None
+
+
+@pytest.mark.parametrize("setup_type", [_FailingDeferredSetup, _FailingAsyncSetup])
+@pytest.mark.parametrize("parallel", [False, True])
+def test_model_handled_await_failure_finishes_with_no_pending_handles(
+    setup_type: type[BaseAsyncSubagentSetup] | type[DeferredSubagentSetup],
+    parallel: bool,
+) -> None:
+    """Handled model-call failures release runtime bookkeeping in both dispatch paths."""
+    setup = setup_type()
+    task = _FakeTask(action_name="tool_call_action")
+    setup.on_action_prepared(task)
+    ctx = _Context().with_agent("reviewer", setup)
+    if parallel:
+        ctx.with_parallel_tool_calls()
+        request = two_subagent_request("reviewer", "reviewer")
+    else:
+        request = tool_request("_subagent_reviewer")
+
+    asyncio.run(process_tool_request(request, ctx))
+
+    response = ToolResponseEvent.from_event(ctx.sent_events[0])
+    assert response.success
+    assert all(value is False for value in response.success.values())
+    assert setup.pending_call_registry().is_empty()
+    setup.on_action_finishing(task)

@@ -180,6 +180,14 @@ class SubagentFuture(ABC):
         separately raised exception.
         """
 
+    def fail(self, failure: Exception) -> None:  # noqa: B027 - deliberate no-op default
+        """Record an await failure handled by a framework-driven caller.
+
+        This does not cancel the remote invocation. Runtime futures use it to
+        complete their pending-call bookkeeping; custom futures may leave the
+        default no-op in place.
+        """
+
 
 class SubagentFutures(ABC):
     """A group of sub-agent handles to be resolved together.

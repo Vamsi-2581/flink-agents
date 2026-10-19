@@ -49,6 +49,13 @@ public abstract class SubagentFuture {
      */
     public abstract SubagentResult await() throws Exception;
 
+    /**
+     * Records an await failure that a framework-driven caller has chosen to handle as a failed
+     * sub-agent result. This does not cancel the remote invocation. Runtime implementations use
+     * it to finish their pending-call bookkeeping; custom handles may keep the default no-op.
+     */
+    public void fail(Exception failure) {}
+
     /** Requests cancellation of the invocation. */
     public void cancel() {}
 

@@ -15,8 +15,10 @@
 #  See the License for the specific language governing permissions and
 # limitations under the License.
 #################################################################################
+import asyncio
 import logging
 from collections.abc import Callable
+from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import wraps
@@ -429,6 +431,7 @@ async def _dispatch_agent_execution(
     success: dict,
     error: dict,
 ) -> None:
+    future = None
     try:
         # The start occurrence is reported once here, before the hand-off, so a failure
         # while normalizing the result -- which re-enters _record_agent_failure below --
@@ -440,7 +443,11 @@ async def _dispatch_agent_execution(
         future = await execution.agent.submit(ctx, execution.agent_kwargs)
         result = await future
         _record_agent_result(execution, result, ctx, responses, success, error)
+    except (CancelledError, InterruptedError, asyncio.CancelledError):
+        raise
     except Exception as e:
+        if future is not None:
+            future.fail(e)
         _record_agent_failure(execution, e, ctx, responses, success, error)
 
 
@@ -474,13 +481,22 @@ async def _dispatch_agent_executions(
             _report_subagent_started(execution, ctx)
             futures.append(await execution.agent.submit(ctx, execution.agent_kwargs))
             submitted.append(execution)
-        except Exception as e:  # noqa: PERF203
+        except (CancelledError, InterruptedError, asyncio.CancelledError):  # noqa: PERF203
+            for future in futures:
+                future.cancel()
+            raise
+        except Exception as e:
             _record_agent_failure(execution, e, ctx, responses, success, error)
-    for execution, future in zip(submitted, futures, strict=True):
+    for index, (execution, future) in enumerate(zip(submitted, futures, strict=True)):
         try:
             result = await future
             _record_agent_result(execution, result, ctx, responses, success, error)
-        except Exception as e:  # noqa: PERF203
+        except (CancelledError, InterruptedError, asyncio.CancelledError):  # noqa: PERF203
+            for pending in futures[index:]:
+                pending.cancel()
+            raise
+        except Exception as e:
+            future.fail(e)
             _record_agent_failure(execution, e, ctx, responses, success, error)
 
 

@@ -107,6 +107,13 @@ public final class DeferredSubagentFuture extends SubagentFuture {
     }
 
     @Override
+    public void fail(Exception failure) {
+        if (!done && !cancelled) {
+            complete(SubagentResult.error(failure));
+        }
+    }
+
+    @Override
     public boolean isDone() {
         return done || cancelled;
     }

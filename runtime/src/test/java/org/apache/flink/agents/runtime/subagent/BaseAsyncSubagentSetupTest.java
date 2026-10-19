@@ -352,6 +352,36 @@ public class BaseAsyncSubagentSetupTest {
         }
     }
 
+    /** Handles an await error as a failed model-visible result. */
+    @SuppressWarnings("unused")
+    public static void acknowledgesHandledAwaitFailure(Event event, RunnerContext ctx)
+            throws Exception {
+        MockAsyncSubagentSetup setup =
+                (MockAsyncSubagentSetup) ctx.getResource(RESOURCE_NAME, ResourceType.AGENT);
+        SubagentFuture future = setup.submit(ctx, "ping");
+        future.fail(new IllegalStateException("status service unavailable"));
+        SubagentResult result = future.await();
+        if (result.isSuccess()) {
+            throw new IllegalStateException("failed handle became successful");
+        }
+        ctx.sendEvent(new OutputEvent(result.getErrorMessage()));
+    }
+
+    @Test
+    void handledAwaitFailureCompletesTrackedAsyncHandle() throws Exception {
+        MockAsyncSubagentSetup setup = new MockAsyncSubagentSetup(0, false);
+        try (KeyedOneInputStreamOperatorTestHarness<Long, Long, Object> harness =
+                harness(plan("acknowledgesHandledAwaitFailure", setup))) {
+            harness.open();
+            run(harness, 1L);
+
+            assertThat(setup.postCount()).isEqualTo(1);
+            assertThat(setup.statusQueryCount()).isZero();
+            assertThat(setup.fetchCount()).isZero();
+            assertThat(harness.getRecordOutput()).hasSize(1);
+        }
+    }
+
     /** Continues a session: the second invocation reuses the first handle's session id. */
     @SuppressWarnings("unused")
     public static void continuesASession(Event event, RunnerContext ctx) throws Exception {

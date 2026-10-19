@@ -114,6 +114,17 @@ final class AsyncSubagentFuture extends SubagentFuture {
         }
     }
 
+    @Override
+    public void fail(Exception failure) {
+        if (!consumed && !cancelled) {
+            value = SubagentResult.error(failure);
+            consumed = true;
+            if (registry != null) {
+                registry.untrackPendingSubagentCall(identity());
+            }
+        }
+    }
+
     private String identity() {
         return getSessionId() + "#" + getCallId();
     }

@@ -449,6 +449,7 @@ public class ToolCallAction {
             Map<String, String> error,
             Map<String, ToolResponse> responses)
             throws Exception {
+        SubagentFuture future = null;
         try {
             // The start occurrence is reported once here, before the hand-off, so a failure while
             // normalizing the result -- which re-enters recordAgentFailure below -- still yields a
@@ -457,22 +458,31 @@ public class ToolCallAction {
             reportSubagentStarted(execution, ctx);
             // submit() and await() already run through durable execution inside the setup, so
             // wrapping the call again here would nest durable cursors.
-            SubagentResult result = execution.agent.submit(ctx, execution.agentArguments).await();
+            future = execution.agent.submit(ctx, execution.agentArguments);
+            SubagentResult result = future.await();
             recordAgentResult(execution, result, ctx, success, error, responses);
         } catch (Exception e) {
             rethrowCancellation(e);
+            if (future != null) {
+                future.fail(e);
+            }
             recordAgentFailure(execution, e, ctx, success, error, responses);
         } catch (StackOverflowError e) {
             // Normalizing a result nested deeper than the stack allows overflows it; the cycle
             // guard reports a plain cycle earlier, so what reaches here is a result too deep to
             // walk. A StackOverflowError is an Error, so it would escape the catch above and fail
             // the job; fold it into the same failed delegation the model can read and correct.
-            recordAgentFailure(
-                    execution,
+            RuntimeException failure =
                     new RuntimeException(
                             "Sub-agent result is cyclic or too deeply nested to normalize as"
                                     + " JSON",
-                            e),
+                            e);
+            if (future != null) {
+                future.fail(failure);
+            }
+            recordAgentFailure(
+                    execution,
+                    failure,
                     ctx,
                     success,
                     error,
@@ -535,17 +545,21 @@ public class ToolCallAction {
                     }
                     throw e;
                 }
+                futures.get(i).fail(e);
                 recordAgentFailure(execution, e, ctx, success, error, responses);
             } catch (StackOverflowError e) {
                 // As in the serial path: an overflow while normalizing one result is an Error that
                 // would otherwise escape and fail the job mid-batch, so it is folded into that
                 // call's failed delegation and the remaining handles are still awaited.
-                recordAgentFailure(
-                        execution,
+                RuntimeException failure =
                         new RuntimeException(
                                 "Sub-agent result is cyclic or too deeply nested to normalize"
                                         + " as JSON",
-                                e),
+                                e);
+                futures.get(i).fail(failure);
+                recordAgentFailure(
+                        execution,
+                        failure,
                         ctx,
                         success,
                         error,
