@@ -97,12 +97,16 @@ class DeferredSubagentFuture(SubagentFuture):
         the action instead of being folded into an error result.
         """
         durable_id, call, reconcile = self.prepare()
-        value = yield from self._ctx.durable_execute_async(
-            call,
-            reconciler=reconcile,
-            durable_id=durable_id,
-        ).__await__()
-        self._resolve(value)
+        try:
+            value = yield from self._ctx.durable_execute_async(
+                call,
+                reconciler=reconcile,
+                durable_id=durable_id,
+            ).__await__()
+            self._resolve(value)
+        finally:
+            if self._registry is not None:
+                self._registry.untrack_pending_subagent_call(self.identity)
 
     def combine(self, *others: SubagentFuture) -> SubagentFutures:
         """Group this handle with others for a batched resolve."""
@@ -120,14 +124,6 @@ class DeferredSubagentFuture(SubagentFuture):
     def _resolve(self, value: SubagentResult) -> None:
         self._value = value
         self._done = True
-        if self._registry is not None:
-            self._registry.untrack_pending_subagent_call(self.identity)
-
-    def fail(self, failure: Exception) -> None:
-        """Complete a failed await that the model-driven caller handled."""
-        if not self._done and not self._cancelled:
-            self._resolve(SubagentResult.error(failure))
-
 
 class DeferredSubagentSetup(BaseSubagentSetup, ABC):
     """The framework-level deferred execution mode for sub-agent setups.

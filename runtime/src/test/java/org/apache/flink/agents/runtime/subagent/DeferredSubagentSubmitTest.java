@@ -245,32 +245,6 @@ public class DeferredSubagentSubmitTest {
         }
     }
 
-    @SuppressWarnings("unused")
-    public static void acknowledgesHandledAwaitFailure(Event event, RunnerContext ctx)
-            throws Exception {
-        BaseDeferredSubagentSetup setup =
-                (BaseDeferredSubagentSetup) ctx.getResource(RESOURCE_NAME, ResourceType.AGENT);
-        SubagentFuture future = setup.submit(ctx, "handled", "session", "call-1");
-        future.fail(new IllegalStateException("remote unavailable"));
-        SubagentResult result = future.await();
-        if (result.isSuccess()) {
-            throw new IllegalStateException("failed handle became successful");
-        }
-        ctx.sendEvent(new OutputEvent(result.getErrorMessage()));
-    }
-
-    @Test
-    void handledAwaitFailureCompletesTrackedDeferredHandle() throws Exception {
-        try (KeyedOneInputStreamOperatorTestHarness<Long, Long, Object> harness =
-                harness(plan("acknowledgesHandledAwaitFailure", new MockDeferredSubagentSetup()))) {
-            harness.open();
-            run(harness, 1L);
-
-            assertThat(harness.getRecordOutput()).hasSize(1);
-            assertThat(MockDeferredSubagentSetup.executionCount()).isZero();
-        }
-    }
-
     // A system-level failure escaping the prepared callable propagates and fails the action
     // instead of being folded into an error result.
 

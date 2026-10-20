@@ -152,10 +152,12 @@ class AsyncSubagentFuture(SubagentFuture):
                 self.call_id,
                 durable_id=f"{self.identity}#await",
             )
-            self._value = yield from awaitable.__await__()
-            self._consumed = True
-            if self._registry is not None:
-                self._registry.untrack_pending_subagent_call(self.identity)
+            try:
+                self._value = yield from awaitable.__await__()
+                self._consumed = True
+            finally:
+                if self._registry is not None:
+                    self._registry.untrack_pending_subagent_call(self.identity)
         return self._value
 
     def cancel(self) -> None:
@@ -174,14 +176,6 @@ class AsyncSubagentFuture(SubagentFuture):
         self._cancelled = True
         if self._registry is not None:
             self._registry.untrack_pending_subagent_call(self.identity)
-
-    def fail(self, failure: Exception) -> None:
-        """Complete a failed await that the model-driven caller handled."""
-        if not self._consumed and not self._cancelled:
-            self._value = SubagentResult.error(failure)
-            self._consumed = True
-            if self._registry is not None:
-                self._registry.untrack_pending_subagent_call(self.identity)
 
     def combine(self, *others: SubagentFuture) -> SubagentFutures:
         """Group this handle with others for a batched resolve."""

@@ -477,9 +477,6 @@ public class ToolCallAction {
                             "Sub-agent result is cyclic or too deeply nested to normalize as"
                                     + " JSON",
                             e);
-            if (future != null) {
-                future.fail(failure);
-            }
             recordAgentFailure(
                     execution,
                     failure,
@@ -556,7 +553,6 @@ public class ToolCallAction {
                                 "Sub-agent result is cyclic or too deeply nested to normalize"
                                         + " as JSON",
                                 e);
-                futures.get(i).fail(failure);
                 recordAgentFailure(
                         execution,
                         failure,

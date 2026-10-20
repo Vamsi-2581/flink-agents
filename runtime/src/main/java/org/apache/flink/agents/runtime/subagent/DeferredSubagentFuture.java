@@ -101,16 +101,6 @@ public final class DeferredSubagentFuture extends SubagentFuture {
     private void complete(SubagentResult outcome) {
         this.value = outcome;
         this.done = true;
-        if (registry != null) {
-            registry.untrackPendingSubagentCall(identity());
-        }
-    }
-
-    @Override
-    public void fail(Exception failure) {
-        if (!done && !cancelled) {
-            complete(SubagentResult.error(failure));
-        }
     }
 
     @Override
@@ -124,7 +114,13 @@ public final class DeferredSubagentFuture extends SubagentFuture {
             throw new CancellationException("Sub-agent call cancelled: " + identity());
         }
         if (!done) {
-            execute();
+            try {
+                execute();
+            } finally {
+                if (registry != null) {
+                    registry.untrackPendingSubagentCall(identity());
+                }
+            }
         }
         return value;
     }

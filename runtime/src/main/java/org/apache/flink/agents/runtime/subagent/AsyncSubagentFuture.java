@@ -84,12 +84,15 @@ final class AsyncSubagentFuture extends SubagentFuture {
                     "Sub-agent call cancelled: " + getSessionId() + "#" + getCallId());
         }
         if (!consumed) {
-            DurableCallable<SubagentResult> awaitCall =
-                    setup.awaitResult(ctx, getSessionId(), getCallId());
-            value = ctx.durableExecuteAsync(awaitCall).await();
-            consumed = true;
-            if (registry != null) {
-                registry.untrackPendingSubagentCall(identity());
+            try {
+                DurableCallable<SubagentResult> awaitCall =
+                        setup.awaitResult(ctx, getSessionId(), getCallId());
+                value = ctx.durableExecuteAsync(awaitCall).await();
+                consumed = true;
+            } finally {
+                if (registry != null) {
+                    registry.untrackPendingSubagentCall(identity());
+                }
             }
         }
         return value;
@@ -111,17 +114,6 @@ final class AsyncSubagentFuture extends SubagentFuture {
         cancelled = true;
         if (registry != null) {
             registry.untrackPendingSubagentCall(identity());
-        }
-    }
-
-    @Override
-    public void fail(Exception failure) {
-        if (!consumed && !cancelled) {
-            value = SubagentResult.error(failure);
-            consumed = true;
-            if (registry != null) {
-                registry.untrackPendingSubagentCall(identity());
-            }
         }
     }
 

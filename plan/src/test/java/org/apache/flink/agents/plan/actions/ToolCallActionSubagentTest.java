@@ -246,7 +246,6 @@ class ToolCallActionSubagentTest {
         ToolCallAction.processToolRequest(toolRequest("_subagent_reviewer"), ctx);
 
         assertThat(agent.futures).hasSize(1);
-        assertThat(agent.futures.get(0).failure).hasMessage("remote unavailable");
         ToolResponseEvent response = ToolResponseEvent.fromEvent(ctx.sentEvents.get(0));
         assertThat(response.getSuccess()).containsEntry("call-1", false);
         assertThat(response.getError().get("call-1")).contains("remote unavailable");
@@ -263,8 +262,6 @@ class ToolCallActionSubagentTest {
         ToolCallAction.processToolRequest(twoSubagentRequest("reviewer", "reviewer"), ctx);
 
         assertThat(agent.futures).hasSize(2);
-        assertThat(agent.futures).allSatisfy(future -> assertThat(future.failure)
-                .hasMessage("remote unavailable"));
         ToolResponseEvent response = ToolResponseEvent.fromEvent(ctx.sentEvents.get(0));
         assertThat(response.getSuccess())
                 .containsEntry("call-1", false)
@@ -649,7 +646,6 @@ class ToolCallActionSubagentTest {
     }
 
     private static class FailingFuture extends SubagentFuture {
-        private Exception failure;
 
         FailingFuture(String sessionId, String callId) {
             super(sessionId, callId);
@@ -663,11 +659,6 @@ class ToolCallActionSubagentTest {
         @Override
         public SubagentResult await() {
             throw new IllegalStateException("remote unavailable");
-        }
-
-        @Override
-        public void fail(Exception failure) {
-            this.failure = failure;
         }
 
         @Override
