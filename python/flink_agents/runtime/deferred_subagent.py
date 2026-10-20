@@ -96,8 +96,8 @@ class DeferredSubagentFuture(SubagentFuture):
         A system-level failure escaping durable execution propagates and fails
         the action instead of being folded into an error result.
         """
-        durable_id, call, reconcile = self.prepare()
         try:
+            durable_id, call, reconcile = self.prepare()
             value = yield from self._ctx.durable_execute_async(
                 call,
                 reconciler=reconcile,
