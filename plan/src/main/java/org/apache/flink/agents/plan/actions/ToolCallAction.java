@@ -463,9 +463,6 @@ public class ToolCallAction {
             recordAgentResult(execution, result, ctx, success, error, responses);
         } catch (Exception e) {
             rethrowCancellation(e);
-            if (future != null) {
-                future.fail(e);
-            }
             recordAgentFailure(execution, e, ctx, success, error, responses);
         } catch (StackOverflowError e) {
             // Normalizing a result nested deeper than the stack allows overflows it; the cycle
@@ -542,7 +539,6 @@ public class ToolCallAction {
                     }
                     throw e;
                 }
-                futures.get(i).fail(e);
                 recordAgentFailure(execution, e, ctx, success, error, responses);
             } catch (StackOverflowError e) {
                 // As in the serial path: an overflow while normalizing one result is an Error that

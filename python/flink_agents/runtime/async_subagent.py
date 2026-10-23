@@ -143,16 +143,15 @@ class AsyncSubagentFuture(SubagentFuture):
             msg = f"Sub-agent call cancelled: {self.identity}"
             raise CancelledError(msg)
         if not self._consumed:
-            # Build the durable awaitable first, then yield from it, so the
-            # await composition and its durable execution cannot be misread
-            # as one serial call.
-            awaitable = self._ctx.durable_execute_async(
-                self._setup._await_until_terminal,
-                self.session_id,
-                self.call_id,
-                durable_id=f"{self.identity}#await",
-            )
             try:
+                # Include construction as well as awaiting the durable call:
+                # either step can fail before the handle is consumed.
+                awaitable = self._ctx.durable_execute_async(
+                    self._setup._await_until_terminal,
+                    self.session_id,
+                    self.call_id,
+                    durable_id=f"{self.identity}#await",
+                )
                 self._value = yield from awaitable.__await__()
                 self._consumed = True
             finally:

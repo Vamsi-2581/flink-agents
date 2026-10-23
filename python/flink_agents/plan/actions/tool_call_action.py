@@ -446,8 +446,6 @@ async def _dispatch_agent_execution(
     except (CancelledError, InterruptedError, asyncio.CancelledError):
         raise
     except Exception as e:
-        if future is not None:
-            future.fail(e)
         _record_agent_failure(execution, e, ctx, responses, success, error)
 
 
@@ -496,7 +494,6 @@ async def _dispatch_agent_executions(
                 pending.cancel()
             raise
         except Exception as e:
-            future.fail(e)
             _record_agent_failure(execution, e, ctx, responses, success, error)
 
 

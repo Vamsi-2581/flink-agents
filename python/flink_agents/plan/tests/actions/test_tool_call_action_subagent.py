@@ -228,6 +228,7 @@ class _Context(ExecutionReporter):
 
     def durable_execute_async(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         kwargs.pop("durable_id", None)
+        kwargs.pop("reconciler", None)
 
         # Deferred: the count reflects executions (when the future is awaited,
         # directly or via gather), not handle creations, matching the lazy
@@ -383,6 +384,37 @@ def two_subagent_request(first: str, second: str) -> ToolRequestEvent:
 
 def order_tool() -> FunctionTool:
     return FunctionTool(func=PythonFunction.from_callable(query_order))
+
+
+class _FailingDeferredSubagentSetup(DeferredSubagentSetup):
+    def prepare(
+        self,
+        ctx: RunnerContext,
+        prompt: Any,
+        session_id: str,
+        call_id: str,
+    ) -> tuple[str, Any, None]:
+        def fail() -> None:
+            raise RuntimeError("remote unavailable")
+
+        return f"{session_id}#{call_id}", fail, None
+
+
+def test_handled_deferred_await_failure_clears_action_lifecycle_registry() -> None:
+    setup = _FailingDeferredSubagentSetup(description="Fails while awaiting.")
+    setup.set_subagent_name("reviewer")
+    task = _FakeTask(action_name="tool_call_action")
+    setup.on_action_prepared(task)
+    ctx = _Context().with_agent("reviewer", setup)
+
+    asyncio.run(process_tool_request(tool_request("_subagent_reviewer"), ctx))
+
+    response = ToolResponseEvent.from_event(ctx.sent_events[0])
+    assert response.success["call-1"] is False
+    assert response.error["call-1"] == "remote unavailable"
+    # This lifecycle check reproduced the original bug: the failed handle used
+    # to remain pending even though ToolCallAction returned an error response.
+    setup.on_action_finishing(task)
 
 
 def test_delegates_to_the_subagent_and_reports_its_normalized_result() -> None:
